@@ -243,6 +243,11 @@ static class CustomExtensionsMethods
             };
         });
 
+        services.AddMediatR(cfg =>
+        {
+            cfg.RegisterServicesFromAssemblyContaining<Startup>();
+        });
+
         return services;
     }
 

@@ -1,6 +1,10 @@
 ﻿namespace Microsoft.eShopOnContainers.Services.Ordering.API.Controllers;
 
 using ApiDto;
+using MediatR;
+using Microsoft.eShopOnContainers.Services.Ordering.API.Features.Orders.GetOrders;
+using Microsoft.eShopOnContainers.Services.Ordering.API.Features.Orders.NewOrder;
+using Microsoft.eShopOnContainers.Services.Ordering.API.Features.Orders.Ship;
 using Microsoft.eShopOnContainers.Services.Ordering.API.Infrastructure.Services;
 
 [Route("api/v1/[controller]")]
@@ -10,195 +14,98 @@ public class OrdersController : ControllerBase
 {
     private readonly IIdentityService _identityService;
     private readonly OrderingContext _orderingContext;
-
-    public OrdersController(IIdentityService identityService, OrderingContext orderingContext)
+    private readonly ISender _mediator;
+    
+    public OrdersController(IIdentityService identityService, OrderingContext orderingContext, ISender mediator)
     {
         _identityService = identityService ?? throw new ArgumentNullException(nameof(identityService));
         _orderingContext = orderingContext;
+        _mediator = mediator;
     }
 
     [Route("new")]
     [HttpPut]
     [ProducesResponseType((int)HttpStatusCode.Created)]
     [ProducesResponseType((int)HttpStatusCode.BadRequest)]
-    public async Task<IActionResult> NewOrderAsync([FromBody] NewOrderModel model)
+    public async Task<IActionResult> NewOrderAsync([FromBody] NewOrderModel model, CancellationToken token)
     {
         // Get the user info
         var userId = HttpContext.User.FindFirst("sub").Value;
         var userName = HttpContext.User.FindFirst("name").Value;
         
-        // Create the order
-        var address = new Address
+        var request = new Features.Orders.NewOrder.Request
         {
-            Street = model.Street,
+            Buyer = model.Buyer,
+            CardExpiration = model.CardExpiration,
+            CardHolderName = model.CardHolderName,
+            CardNumber = model.CardNumber,
+            CardSecurityNumber = model.CardSecurityNumber,
+            CardTypeId = model.CardTypeId,
             City = model.City,
-            State = model.State,
             Country = model.Country,
-            ZipCode = model.ZipCode
-        };
-        var order = new Order
-        {
-            OrderStatusId = OrderStatus.Submitted.Id,
-            OrderDate = DateTime.UtcNow,
-            Address = address,
-        };
-
-        foreach (var item in model.OrderItems)
-        {
-            OrderManager.AddOrderItem(order, item.ProductId, item.ProductName, item.UnitPrice, item.Discount, item.PictureUrl, item.Units);
-        }
-
-        _orderingContext.Orders.Add(order);
-        
-        await _orderingContext.SaveChangesAsync();
-        
-        // Create or update the buyer details
-        var cardTypeId = model.CardTypeId != 0 ? model.CardTypeId : 1;
-        var buyer = await _orderingContext.Buyers
-            .Where(b => b.IdentityGuid == userId)
-            .Include(b => b.PaymentMethods)
-            .SingleOrDefaultAsync();
-        
-        bool buyerOriginallyExisted = buyer != null;
-
-        if (!buyerOriginallyExisted)
-        {
-            buyer = new Buyer
+            OrderItems = model.OrderItems.Select(oi => new Features.Orders.NewOrder.Request.OrderItem
             {
-                IdentityGuid = userId,
-                Name = userName
-            };
-        }
+                Discount = oi.Discount,
+                PictureUrl = oi.PictureUrl,
+                ProductId = oi.ProductId,
+                ProductName = oi.ProductName,
+                UnitPrice = oi.UnitPrice,
+                Units = oi.Units
+            }).ToList(),
+            RequestId = model.RequestId,
+            State = model.State,
+            Street = model.Street,
+            UserId = userId,
+            UserName = userName,
+            ZipCode = model.ZipCode,
+        };
 
-        string alias = $"Payment Method on {DateTime.UtcNow}";
-        PaymentMethod paymentMethod;
-        var existingPayment = buyer.PaymentMethods
-            .SingleOrDefault(p => p.CardTypeId == cardTypeId
-                                  && p.CardNumber == model.CardNumber
-                                  && p.Expiration == model.CardExpiration);
+        var orderId = _mediator.Send(request, token);
 
-        if (existingPayment != null)
-        {
-            paymentMethod = existingPayment;
-        }
-        else
-        {
-            var payment = new PaymentMethod
-            {
-                CardNumber = model.CardNumber,
-                SecurityNumber = model.CardSecurityNumber,
-                CardHolderName = model.CardHolderName,
-                Alias = alias,
-                Expiration = model.CardExpiration,
-                CardTypeId = cardTypeId
-            };
-
-            buyer.PaymentMethods.Add(payment);
-
-            paymentMethod = payment;
-        }
-
-        if (buyerOriginallyExisted)
-        {
-            _orderingContext.Buyers.Update(buyer);
-        }
-        else
-        {
-            _orderingContext.Buyers.Add(buyer);
-        }
-        
-        await _orderingContext.SaveChangesAsync();
-        
-        // Update order details with buyer information
-        order.Buyer = buyer;
-        order.PaymentMethodId = paymentMethod.Id;
-        
-        _orderingContext.Orders.Update(order);
-        
-        await _orderingContext.SaveChangesAsync();
-
-        return CreatedAtAction("GetOrder", new { orderId = order.Id }, null);
+        return CreatedAtAction("GetOrder", new { orderId }, null);
     }
+
     [Route("cancel")]
     [HttpPut]
     [ProducesResponseType((int)HttpStatusCode.OK)]
     [ProducesResponseType((int)HttpStatusCode.BadRequest)]
-    public async Task<IActionResult> CancelOrderAsync([FromBody] CancelOrderModel model)
+    public async Task<IActionResult> CancelOrderAsync([FromBody] Features.Orders.CancelOrder.Request request, CancellationToken token)
     {
-        var orderToUpdate = await _orderingContext.Orders.FindAsync(model.OrderNumber);
-        if (orderToUpdate == null)
-        {
-            return BadRequest();
-        }
+        var result = await _mediator.Send(request, token);
 
-        orderToUpdate.OrderStatusId = OrderStatus.Cancelled.Id;
-        orderToUpdate.Description = $"The order was cancelled.";
-
-        await _orderingContext.SaveChangesAsync();
-
-        return Ok();
+        return result ? Ok() : BadRequest();
     }
 
     [Route("ship")]
     [HttpPut]
     [ProducesResponseType((int)HttpStatusCode.OK)]
     [ProducesResponseType((int)HttpStatusCode.BadRequest)]
-    public async Task<IActionResult> ShipOrderAsync([FromBody] ShipOrderModel model)
+    public async Task<IActionResult> ShipOrderAsync([FromBody] ShipOrderModel model, CancellationToken token)
     {
-        var orderToUpdate = await _orderingContext.Orders.FindAsync(model.OrderNumber);
-        if (orderToUpdate == null)
-        {
-            return BadRequest();
-        }
+        var result = await _mediator.Send(new Features.Orders.Ship.Request { OrderNumber = model.OrderNumber });
 
-        orderToUpdate.OrderStatusId = OrderStatus.Shipped.Id;
-        orderToUpdate.Description = "The order was shipped.";
-
-        await _orderingContext.SaveChangesAsync();
-
-        return Ok();
+        if (result)
+            return Ok();
+        
+        return BadRequest();
     }
 
     [Route("{orderId:int}")]
     [HttpGet]
-    [ProducesResponseType(typeof(OrderDto), (int)HttpStatusCode.OK)]
+    [ProducesResponseType(typeof(Features.Orders.GetOrder.Model), (int)HttpStatusCode.OK)]
     [ProducesResponseType((int)HttpStatusCode.NotFound)]
     public async Task<ActionResult> GetOrderAsync(int orderId)
     {
         try
         {
-            var order = await _orderingContext.Orders
-                .Include(o => o.OrderStatus)
-                .Include(o => o.OrderItems)
-                .Where(o => o.Id == orderId)
-                .SingleOrDefaultAsync();
+            var order = _mediator.Send(new Features.Orders.GetOrder.Request { OrderId = orderId });
 
             if (order == null)
             {
                 return NotFound();
             }
             
-            var queryOrder = new OrderDto
-            {
-                OrderNumber = order.Id,
-                Description = order.Description,
-                Street = order.Address.Street,
-                City = order.Address.City,
-                ZipCode = order.Address.ZipCode,
-                Country = order.Address.Country,
-                Date = order.OrderDate,
-                Status = order.OrderStatus.ToString(),
-                Total = OrderManager.GetTotal(order),
-                OrderItems = order.OrderItems.Select(orderItem => new OrderItemDto
-                {
-                    ProductName = orderItem.ProductName,
-                    PictureUrl = orderItem.PictureUrl,
-                    UnitPrice = orderItem.UnitPrice,
-                    Units = orderItem.Units
-                }).ToList()
-            };
-            
-            return Ok(queryOrder);
+            return Ok(order);
         }
         catch
         {
@@ -207,24 +114,17 @@ public class OrdersController : ControllerBase
     }
 
     [HttpGet]
-    [ProducesResponseType(typeof(IEnumerable<OrderSummaryDto>), (int)HttpStatusCode.OK)]
-    public async Task<ActionResult<IEnumerable<OrderSummaryDto>>> GetOrdersAsync()
+    [ProducesResponseType(typeof(IEnumerable<Features.Orders.GetOrders.Model>), (int)HttpStatusCode.OK)]
+    public async Task<ActionResult<IEnumerable<Features.Orders.GetOrders.Model>>> GetOrdersAsync(CancellationToken token)
     {
         var userid = _identityService.GetUserIdentity();
-        var orders = await _orderingContext.Orders
-            .Include(o => o.OrderStatus)
-            .Include(o => o.OrderItems)
-            .Where(o => o.Buyer.IdentityGuid == userid)
-            .ToListAsync();
 
-        var orderSummary = orders
-            .Select(o => new OrderSummaryDto
-            {
-                OrderNumber = o.Id,
-                Date = o.OrderDate,
-                Status = o.OrderStatus.ToString(),
-                Total = OrderManager.GetTotal(o)
-            });
+        var request = new Features.Orders.GetOrders.Request
+        {
+            UserId = userid
+        };
+
+        var orderSummary = await _mediator.Send(request, token);
 
         return Ok(orderSummary);
     }
