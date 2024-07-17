@@ -3,6 +3,8 @@
 public class Order
     : Entity
 {
+    private readonly List<OrderItem> _orderItems = [];
+
     protected Order() { }
     
     public Order(Address address)
@@ -27,7 +29,7 @@ public class Order
     public OrderStatus OrderStatus { get; set; }
     public int OrderStatusId { get; set; }
 
-    public ICollection<OrderItem> OrderItems { get; } = new List<OrderItem>();
+    public IReadOnlyCollection<OrderItem> OrderItems => _orderItems;
 
     public string Description { get; set; }
 
@@ -57,7 +59,7 @@ public class Order
         {
             var orderItem = new OrderItem(productId, productName, pictureUrl, unitPrice, discount, units);
             
-            OrderItems.Add(orderItem);
+            _orderItems.Add(orderItem);
         }
     }
 }

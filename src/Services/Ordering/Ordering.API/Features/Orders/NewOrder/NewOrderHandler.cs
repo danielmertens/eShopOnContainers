@@ -14,27 +14,53 @@ public class NewOrderHandler : IRequestHandler<NewOrderRequest, int>
     public async Task<int> Handle(NewOrderRequest request, CancellationToken cancellationToken)
     {
         // Create the order
-        var address = new Address(request.Street, request.City, request.State, request.ZipCode, request.Country);
-        var order = new Order(address);
-
-        foreach (var item in request.OrderItems)
-        {
-            order.AddOrderItem(item.ProductId, item.ProductName, item.UnitPrice, item.Discount, item.PictureUrl, item.Units);
-        }
+        Order order = CreateOrder(request);
 
         _orderingContext.Orders.Add(order);
-        
+
         await _orderingContext.SaveChangesAsync(cancellationToken);
-        
+
         // Create or update the buyer details
+        Buyer buyer;
+        bool buyerOriginallyExisted;
+        PaymentMethod paymentMethod;
+        await CreateOrUpdateBuyer(request, out buyer, out buyerOriginallyExisted, out paymentMethod, cancellationToken);
+
+        if (buyerOriginallyExisted)
+        {
+            _orderingContext.Buyers.Update(buyer);
+        }
+        else
+        {
+            _orderingContext.Buyers.Add(buyer);
+        }
+
+        await _orderingContext.SaveChangesAsync(cancellationToken);
+
+        // Update order details with buyer information
+        UpdateOrderDetailsWithBuyer(order, buyer, paymentMethod);
+
+        _orderingContext.Orders.Update(order);
+
+        await _orderingContext.SaveChangesAsync(cancellationToken);
+
+        return order.Id;
+    }
+
+    private static void UpdateOrderDetailsWithBuyer(Order order, Buyer buyer, PaymentMethod paymentMethod)
+    {
+        order.Buyer = buyer;
+        order.PaymentMethodId = paymentMethod.Id;
+    }
+
+    private async Task CreateOrUpdateBuyer(NewOrderRequest request, out Buyer buyer, out bool buyerOriginallyExisted, out PaymentMethod paymentMethod, CancellationToken cancellationToken)
+    {
         var cardTypeId = request.CardTypeId != 0 ? request.CardTypeId : 1;
-        var buyer = await _orderingContext.Buyers
+        buyer = await _orderingContext.Buyers
             .Where(b => b.IdentityGuid == request.UserId)
             .Include(b => b.PaymentMethods)
             .SingleOrDefaultAsync(cancellationToken);
-        
-        bool buyerOriginallyExisted = buyer != null;
-
+        buyerOriginallyExisted = buyer != null;
         if (!buyerOriginallyExisted)
         {
             buyer = new Buyer
@@ -45,7 +71,6 @@ public class NewOrderHandler : IRequestHandler<NewOrderRequest, int>
         }
 
         string alias = $"Payment Method on {DateTime.UtcNow}";
-        PaymentMethod paymentMethod;
         var existingPayment = buyer.PaymentMethods
             .SingleOrDefault(p => p.CardTypeId == cardTypeId
                                   && p.CardNumber == request.CardNumber
@@ -71,26 +96,18 @@ public class NewOrderHandler : IRequestHandler<NewOrderRequest, int>
 
             paymentMethod = payment;
         }
+    }
 
-        if (buyerOriginallyExisted)
-        {
-            _orderingContext.Buyers.Update(buyer);
-        }
-        else
-        {
-            _orderingContext.Buyers.Add(buyer);
-        }
-        
-        await _orderingContext.SaveChangesAsync(cancellationToken);
-        
-        // Update order details with buyer information
-        order.Buyer = buyer;
-        order.PaymentMethodId = paymentMethod.Id;
-        
-        _orderingContext.Orders.Update(order);
-        
-        await _orderingContext.SaveChangesAsync(cancellationToken);
+    private static Order CreateOrder(NewOrderRequest request)
+    {
+        var address = new Address(request.Street, request.City, request.State, request.ZipCode, request.Country);
+        var order = new Order(address);
 
-        return order.Id;
+        foreach (var item in request.OrderItems)
+        {
+            order.AddOrderItem(item.ProductId, item.ProductName, item.UnitPrice, item.Discount, item.PictureUrl, item.Units);
+        }
+
+        return order;
     }
 }
