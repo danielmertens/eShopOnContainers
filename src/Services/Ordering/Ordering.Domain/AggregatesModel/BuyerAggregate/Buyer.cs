@@ -26,7 +26,7 @@ public class Buyer
     public IReadOnlyCollection<Order> Orders => _orders.AsReadOnly();
 
     public PaymentMethod VerifyOrAddPaymentMethod(string cardNumber, string securityNumber, string cardHolderName, DateTime expiration,
-        int cardTypeId, string alias)
+        int cardTypeId)
     {
         PaymentMethod paymentMethod;
         var existingPayment = PaymentMethods
@@ -46,7 +46,7 @@ public class Buyer
                 cardHolderName,
                 expiration,
                 cardTypeId,
-                alias
+                $"Payment Method on {DateTime.UtcNow}"
             );
             
             _paymentMethods.Add(payment);

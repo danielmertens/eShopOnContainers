@@ -40,14 +40,12 @@ public class NewOrderHandler : IRequestHandler<NewOrderRequest, int>
             buyer = new Buyer(request.UserId, request.UserName);
         }
 
-        string alias = $"Payment Method on {DateTime.UtcNow}";
         var paymentMethod = buyer.VerifyOrAddPaymentMethod(
             request.CardNumber, 
             request.CardSecurityNumber, 
             request.CardHolderName,
             request.CardExpiration,
-            cardTypeId,
-            alias);
+            cardTypeId);
 
         if (buyerOriginallyExisted)
         {

@@ -49,3 +49,28 @@ public record NewOrderRequest : IRequest<int>
         public string PictureUrl { get; init; }
     }
 }
+
+public class NewOrderRequestValidator : AbstractValidator<NewOrderRequest>
+{
+    public NewOrderRequestValidator()
+    {
+        // Validation for address
+        RuleFor(req => req.Street).NotEmpty();
+        RuleFor(req => req.City).NotEmpty();
+        RuleFor(req => req.State).NotEmpty();
+        RuleFor(req => req.Country).NotEmpty();
+        RuleFor(req => req.ZipCode).NotEmpty();
+
+        RuleFor(req => req.OrderItems).NotEmpty();
+
+        // Validation for Buyer
+        RuleFor(req => req.UserId).NotEmpty();
+        RuleFor(req => req.UserName).NotEmpty();
+
+        // Validation Payment info
+        RuleFor(req => req.CardExpiration).GreaterThanOrEqualTo(DateTime.UtcNow);
+        RuleFor(req => req.CardHolderName).NotEmpty();
+        RuleFor(req => req.CardNumber).NotEmpty().CreditCard();
+        RuleFor(req => req.CardSecurityNumber).NotEmpty();
+    }
+}

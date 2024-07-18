@@ -64,6 +64,11 @@ public class Order
 
     public void MarkOrderAsShipped()
     {
+        if (OrderStatusId == OrderStatus.Cancelled.Id)
+        {
+            throw new OrderingDomainException("Cannot ship a cancelled order");
+        }
+
         OrderStatusId = OrderStatus.Shipped.Id;
         Description = "The order was shipped.";
     }
