@@ -49,8 +49,8 @@ public class NewOrderHandler : IRequestHandler<NewOrderRequest, int>
 
     private static void UpdateOrderDetailsWithBuyer(Order order, Buyer buyer, PaymentMethod paymentMethod)
     {
-        order.Buyer = buyer;
-        order.PaymentMethodId = paymentMethod.Id;
+        order.AssignBuyer(buyer);
+        order.AddPaymentMethod(paymentMethod);
     }
 
     private async Task CreateOrUpdateBuyer(NewOrderRequest request, out Buyer buyer, out bool buyerOriginallyExisted, out PaymentMethod paymentMethod, CancellationToken cancellationToken)

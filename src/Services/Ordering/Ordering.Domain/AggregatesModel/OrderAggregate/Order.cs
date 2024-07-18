@@ -22,20 +22,20 @@ public class Order
 
     public Address Address { get; private set; }
     
-    public Buyer Buyer { get; set; }
+    public Buyer Buyer { get; private set; }
 
-    public int? BuyerId { get; set; }
+    public int? BuyerId => Buyer.Id;
 
-    public OrderStatus OrderStatus { get; set; }
-    public int OrderStatusId { get; set; }
+    public OrderStatus OrderStatus { get; private set; }
+    public int OrderStatusId => OrderStatus.Id;
 
     public IReadOnlyCollection<OrderItem> OrderItems => _orderItems;
 
-    public string Description { get; set; }
+    public string Description { get; private set; }
 
-    public DateTime OrderDate { get; set; }
+    public DateTime OrderDate { get; private set; }
 
-    public int? PaymentMethodId { get; set; }
+    public int? PaymentMethodId { get; private set; }
 
     public decimal GetTotal() 
         => OrderItems.Sum(orderItem => orderItem.GetPrice());
@@ -61,5 +61,15 @@ public class Order
             
             _orderItems.Add(orderItem);
         }
+    }
+
+    public void AssignBuyer(Buyer buyer)
+    {
+        Buyer = buyer;
+    }
+
+    public void AddPaymentMethod(PaymentMethod paymentMethod)
+    {
+        PaymentMethodId = paymentMethod.Id;
     }
 }
